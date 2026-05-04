@@ -4,9 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>To-do Our List</title>
+    
+    <!-- Library Eksternal -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+
     <style>
         body {
             font-family: 'Quicksand', sans-serif;
@@ -16,19 +19,23 @@
         .pastel-pink { background-color: #ffdde1; }
         .pastel-green { background-color: #e2f0cb; }
         .pastel-purple { background-color: #e1d5e7; }
+        
         .card {
             background: white;
             border-radius: 20px;
             box-shadow: 0 8px 15px rgba(0,0,0,0.05);
         }
+        
         .btn-pastel {
             transition: all 0.3s ease;
             border-radius: 12px;
         }
+        
         .btn-pastel:hover {
             transform: translateY(-2px);
             filter: brightness(0.95);
         }
+        
         .task-done {
             text-decoration: line-through;
             opacity: 0.6;
@@ -83,7 +90,7 @@
                 <div class="card p-6 min-h-[500px]">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-2xl font-bold text-gray-700">Daftar Rencana</h2>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 flex-wrap">
                             <button onclick="filterTasks('Semua')" class="px-3 py-1 text-xs rounded-full bg-gray-100">Semua</button>
                             <button onclick="filterTasks('Harian')" class="px-3 py-1 text-xs rounded-full pastel-blue">Hari</button>
                             <button onclick="filterTasks('Mingguan')" class="px-3 py-1 text-xs rounded-full pastel-green">Minggu</button>
@@ -99,46 +106,48 @@
         </div>
     </div>
 
-    <!-- Firebase Scripts -->
+    <!-- Firebase Logic -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Konfigurasi Firebase
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // --- KONFIGURASI FIREBASE ---
+        // Ganti objek di bawah ini dengan konfigurasi dari Firebase Console Anda
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'todo-our-list';
+        const appId = 'todo-our-list'; // Namespace folder di Firestore
 
         let currentTasks = [];
         let filterType = 'Semua';
         let chartInstance = null;
         let unsubscribeTasks = null;
 
-        // 1. Logika Autentikasi (WAJIB sebelum akses Firestore)
+        // 1. Inisialisasi Autentikasi
         const initAuth = async () => {
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                await signInAnonymously(auth);
             } catch (error) {
                 console.error("Auth error:", error);
                 document.getElementById('auth-status').innerText = "Gagal terhubung: " + error.message;
             }
         };
 
-        // Memantau perubahan status auth
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 document.getElementById('auth-status').innerText = "🟢 Online (Real-time)";
                 document.getElementById('user-info').classList.remove('hidden');
-                document.getElementById('my-id').innerText = user.uid;
-                
-                // Mulai langganan data setelah user terverifikasi
+                document.getElementById('my-id').innerText = user.uid.substring(0, 8) + "...";
                 startListeningToTasks();
             } else {
                 if (unsubscribeTasks) unsubscribeTasks();
@@ -146,13 +155,10 @@
             }
         });
 
-        // 2. Langganan Data Tugas
+        // 2. Mendengarkan Data Secara Real-time
         function startListeningToTasks() {
-            if (!auth.currentUser) return;
-
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'tasks');
             
-            // Unsubscribe jika sebelumnya sudah ada listener aktif
             if (unsubscribeTasks) unsubscribeTasks();
 
             unsubscribeTasks = onSnapshot(q, (snapshot) => {
@@ -163,16 +169,11 @@
                 renderTasks();
                 updateChart();
             }, (error) => {
-                console.error("Snapshot error:", error);
-                // Menampilkan error di UI jika permission ditolak
-                if (error.code === 'permission-denied') {
-                    document.getElementById('taskList').innerHTML = 
-                        `<div class="text-center py-20 text-red-400">Error: Akses ditolak. Pastikan Anda sudah masuk.</div>`;
-                }
+                console.error("Firestore error:", error);
             });
         }
 
-        // 3. Logika Render UI
+        // 3. Render Daftar Tugas ke HTML
         window.renderTasks = () => {
             const container = document.getElementById('taskList');
             container.innerHTML = '';
@@ -182,11 +183,11 @@
                 : currentTasks.filter(t => t.duration === filterType);
 
             if (filtered.length === 0) {
-                container.innerHTML = `<div class="text-center py-20 text-gray-300">Tidak ada tugas kategori ${filterType}.</div>`;
+                container.innerHTML = `<div class="text-center py-20 text-gray-300">Belum ada tugas untuk kategori ini.</div>`;
                 return;
             }
 
-            // Urutkan berdasarkan waktu (terbaru di atas)
+            // Urutkan (Terbaru di atas)
             filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
             filtered.forEach(task => {
@@ -218,38 +219,37 @@
             return 'border-purple-200';
         }
 
-        // 4. Aksi (Tambah, Toggle, Hapus)
+        // 4. CRUD Actions
         window.addTask = async () => {
-            if (!auth.currentUser) return;
-            const title = document.getElementById('taskInput').value;
+            const input = document.getElementById('taskInput');
             const duration = document.getElementById('taskDuration').value;
             
-            if (!title.trim()) return;
+            if (!input.value.trim() || !auth.currentUser) return;
 
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), {
-                    title,
-                    duration,
+                    title: input.value,
+                    duration: duration,
                     completed: false,
                     createdAt: serverTimestamp(),
                     createdBy: auth.currentUser.uid
                 });
-                document.getElementById('taskInput').value = '';
+                input.value = '';
             } catch (e) {
-                console.error("Gagal menambah tugas:", e);
+                alert("Gagal menambah data!");
             }
         };
 
         window.toggleTask = async (id, currentStatus) => {
-            if (!auth.currentUser) return;
             const taskRef = doc(db, 'artifacts', appId, 'public', 'data', 'tasks', id);
             await updateDoc(taskRef, { completed: !currentStatus });
         };
 
         window.deleteTask = async (id) => {
-            if (!auth.currentUser) return;
-            const taskRef = doc(db, 'artifacts', appId, 'public', 'data', 'tasks', id);
-            await deleteDoc(taskRef);
+            if(confirm('Hapus tugas ini?')) {
+                const taskRef = doc(db, 'artifacts', appId, 'public', 'data', 'tasks', id);
+                await deleteDoc(taskRef);
+            }
         };
 
         window.filterTasks = (type) => {
@@ -257,16 +257,13 @@
             renderTasks();
         };
 
-        // 5. Logika Grafik
+        // 5. Statistik Grafik
         function updateChart() {
             const ctx = document.getElementById('statsChart').getContext('2d');
-            
             const done = currentTasks.filter(t => t.completed).length;
             const pending = currentTasks.length - done;
 
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
+            if (chartInstance) chartInstance.destroy();
 
             chartInstance = new Chart(ctx, {
                 type: 'doughnut',
@@ -280,17 +277,13 @@
                 },
                 options: {
                     responsive: true,
-                    plugins: {
-                        legend: { position: 'bottom' }
-                    },
+                    plugins: { legend: { position: 'bottom' } },
                     cutout: '70%'
                 }
             });
         }
 
-        // Jalankan autentikasi saat jendela dimuat
         window.onload = initAuth;
-
     </script>
 </body>
 </html>
